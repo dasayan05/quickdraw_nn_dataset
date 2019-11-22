@@ -1,1 +1,0 @@
-from quickdraw import QuickDraw

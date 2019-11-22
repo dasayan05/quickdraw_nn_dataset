@@ -2,7 +2,7 @@ import os, random, pdb
 import torch, numpy as np
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
-from utils import unpack_drawing, struct
+from .utils import unpack_drawing, struct
 
 class QuickDraw(Dataset):
     def __init__(self, root, categories=[], max_samples=80000, normalize_xy=True, dtype=np.float32, verbose=False,
