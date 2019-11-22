@@ -193,7 +193,9 @@ class QuickDraw(Dataset):
 
     def split(self, proportion=0.8):
         train_samples = int(len(self) * proportion)
-        qd_test = QuickDraw(self.root, self.categories, self.max_samples, self.normalize_xy, self.dtype, self.verbose,
+        qd_test = QuickDraw(self.root, categories=self.categories, max_samples=self.max_samples, normalize_xy=self.normalize_xy,
+            dtype=self.dtype, verbose=self.verbose, filter_func=self.filter_func, mode=self.mode,
+            seperate_p_tensor=self.seperate_p_tensor, shifted_seq_as_supevision=self.shifted_seq_as_supevision,
             cache=self.cache[train_samples:])
         self.cache = self.cache[:train_samples]
 
