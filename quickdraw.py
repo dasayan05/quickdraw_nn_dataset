@@ -38,7 +38,8 @@ class QuickDraw(Dataset):
     SKETCH = 0
     STROKE = 1
 
-    def __init__(self, root, *, categories=[], max_samples=80000, normalize_xy=True, start_from_zero=False, dtype=np.float32, verbose=False,
+    def __init__(self, root, *, categories=[], normalize_xy=True, start_from_zero=False, dtype=np.float32, verbose=False,
+            max_sketches_each_cat=1000, # maximum sketches from each category
             cache=None, # not to be used
             filter_func=None, # subset sketches based on a function
             mode=SKETCH, # default in sketch mode
@@ -60,7 +61,8 @@ class QuickDraw(Dataset):
         self.start_from_zero = start_from_zero
         self.dtype = dtype
         self.verbose = verbose
-        self.max_samples = max_samples
+        self.max_sketches_each_cat = max_sketches_each_cat
+        self.max_sketches = self.max_sketches_each_cat * len(self.categories)
         if filter_func == None:
             self.filter_func = lambda s: (True, s) # passes every sketch
         else:
@@ -74,50 +76,58 @@ class QuickDraw(Dataset):
             self.cache = cache
         else:
             self.cache = []
+            n_sketches = 0
             for cat_idx, category in enumerate(self.categories):
                 bin_file_path = os.path.join(self.root, category)
-                n_samples = 0
+                n_sketches_each_cat = 0
                 with open(bin_file_path, 'rb') as file:
                     while True:
                         try:
                             drawing = unpack_drawing(file)['image']
                             # breakpoint()
-
-                            # Passes all sketches/strokes through 'filter_func'. It returns either
-                            # (True, modified_sketch) OR (False, <anything>). If the first return
-                            # object is True, it adds the 'modified_sketch' into cache. If False,
-                            # it just skips that sample (the 2nd argument is useless then).
-                            if self.mode == QuickDraw.SKETCH:
-                                filter_check, _drawing = self.filter_func(drawing)
-                                if filter_check:
-                                    drawing = _drawing
-                                else:
-                                    continue
-                                
-                                # Append the whole sketch (with category ID)
-                                self.cache.append((drawing, cat_idx))
-                                n_samples += 1
-
-                            elif self.mode == QuickDraw.STROKE:
-                                stroke_drawings = [([d,], cat_idx) for d in drawing]
-                                for j, (sd, _) in enumerate(stroke_drawings):
-                                    filter_check, _sd = self.filter_func(sd)
-                                    if filter_check:
-                                        stroke_drawings[j] = (_sd, cat_idx)
-                                    else:
-                                        continue
-
-                                # Append the stroke sketchs (with category ID each)
-                                self.cache.extend(stroke_drawings)
-                                n_samples += len(stroke_drawings)
-                            
-                            if n_samples >= max_samples:
-                                break
                         except struct.error:
                             break
-                if self.verbose:
-                    print('[Info] {} sketches/strokes read from {}'.format(n_samples, bin_file_path))
 
+                        # Passes all sketches/strokes through 'filter_func'. It returns either
+                        # (True, modified_sketch) OR (False, <anything>). If the first return
+                        # object is True, it adds the 'modified_sketch' into cache. If False,
+                        # it just skips that sample (the 2nd argument is useless then).
+                        if self.mode == QuickDraw.SKETCH:
+                            filter_check, _drawing = self.filter_func(drawing)
+                            if filter_check:
+                                drawing = _drawing
+                            else:
+                                continue
+                            
+                            # Append the whole sketch (with category ID)
+                            self.cache.append((drawing, cat_idx))
+
+                        elif self.mode == QuickDraw.STROKE:
+                            stroke_drawings = [([d,], cat_idx) for d in drawing]
+                            for j, (sd, _) in enumerate(stroke_drawings):
+                                filter_check, _sd = self.filter_func(sd)
+                                if filter_check:
+                                    stroke_drawings[j] = (_sd, cat_idx)
+                                else:
+                                    continue
+
+                            # Append the stroke sketchs (with category ID each)
+                            self.cache.extend(stroke_drawings)
+                        
+                        n_sketches += 1
+                        n_sketches_each_cat += 1
+                        
+                        # enough sketches collected per category
+                        if n_sketches_each_cat >= self.max_sketches_each_cat:
+                            break
+                    
+                    if self.verbose:
+                        print('[Info] {} sketches read from {}'.format(n_sketches_each_cat, bin_file_path))
+                
+                # enough sketches collected
+                if n_sketches >= self.max_sketches:
+                    break
+                
             random.shuffle(self.cache)
 
         if self.verbose:
@@ -196,7 +206,7 @@ class QuickDraw(Dataset):
 
     def split(self, proportion=0.8):
         train_samples = int(len(self) * proportion)
-        qd_test = QuickDraw(self.root, categories=self.categories, max_samples=self.max_samples, normalize_xy=self.normalize_xy,
+        qd_test = QuickDraw(self.root, categories=self.categories, max_sketches_each_cat=self.max_sketches_each_cat, normalize_xy=self.normalize_xy,
             dtype=self.dtype, verbose=self.verbose, filter_func=self.filter_func, mode=self.mode, start_from_zero=self.start_from_zero,
             seperate_p_tensor=self.seperate_p_tensor, shifted_seq_as_supevision=self.shifted_seq_as_supevision,
             cache=self.cache[train_samples:])
@@ -210,7 +220,7 @@ class QuickDraw(Dataset):
 if __name__ == '__main__':
     import sys
 
-    qd = QuickDraw(sys.argv[1], categories=['airplane', 'bus'], max_samples=2, verbose=True, mode=QuickDraw.SKETCH,
+    qd = QuickDraw(sys.argv[1], categories=['airplane', 'bus'], max_sketches_each_cat=10, verbose=True, mode=QuickDraw.STROKE,
         seperate_p_tensor=False, shifted_seq_as_supevision=True)
     qdl = qd.get_dataloader(4)
     for X, Y, _ in qdl:
