@@ -38,7 +38,7 @@ class QuickDraw(Dataset):
     SKETCH = 0
     STROKE = 1
 
-    def __init__(self, root, *, categories=[], max_samples=80000, normalize_xy=True, dtype=np.float32, verbose=False,
+    def __init__(self, root, *, categories=[], max_samples=80000, normalize_xy=True, start_from_zero=False, dtype=np.float32, verbose=False,
             cache=None, # not to be used
             filter_func=None, # subset sketches based on a function
             mode=SKETCH, # default in sketch mode
@@ -57,6 +57,7 @@ class QuickDraw(Dataset):
             self.categories = [cat + '.bin' for cat in categories]
         
         self.normalize_xy = normalize_xy
+        self.start_from_zero = start_from_zero
         self.dtype = dtype
         self.verbose = verbose
         self.max_samples = max_samples
@@ -142,6 +143,8 @@ class QuickDraw(Dataset):
         if self.normalize_xy:
             norm_factor = np.sqrt((sketch[:,:2]**2).sum(1)).max()
             sketch[:,:2] = sketch[:,:2] / (norm_factor + np.finfo(self.dtype).eps)
+        if self.start_from_zero:
+            sketch[:,:2] -= sketch[0,:2]
 
         if self.seperate_p_tensor:
             if self.shifted_seq_as_supevision:
@@ -194,7 +197,7 @@ class QuickDraw(Dataset):
     def split(self, proportion=0.8):
         train_samples = int(len(self) * proportion)
         qd_test = QuickDraw(self.root, categories=self.categories, max_samples=self.max_samples, normalize_xy=self.normalize_xy,
-            dtype=self.dtype, verbose=self.verbose, filter_func=self.filter_func, mode=self.mode,
+            dtype=self.dtype, verbose=self.verbose, filter_func=self.filter_func, mode=self.mode, start_from_zero=self.start_from_zero,
             seperate_p_tensor=self.seperate_p_tensor, shifted_seq_as_supevision=self.shifted_seq_as_supevision,
             cache=self.cache[train_samples:])
         self.cache = self.cache[:train_samples]
