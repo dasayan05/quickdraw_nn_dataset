@@ -38,13 +38,15 @@ class QuickDraw(Dataset):
     SKETCH = 0
     STROKE = 1
 
+    FULLSEQ = 0
+    ENCDEC = 1
+
     def __init__(self, root, *, categories=[], normalize_xy=True, start_from_zero=False, dtype=np.float32, verbose=False,
             max_sketches_each_cat=1000, # maximum sketches from each category
             cache=None, # not to be used
             filter_func=None, # subset sketches based on a function
             mode=SKETCH, # default in sketch mode
-            seperate_p_tensor=False,
-            shifted_seq_as_supevision=False
+            problem=FULLSEQ # organisation of returned data
         ):
         super().__init__()
 
@@ -68,8 +70,9 @@ class QuickDraw(Dataset):
         else:
             self.filter_func = filter_func
         self.mode = mode
-        self.seperate_p_tensor = seperate_p_tensor
-        self.shifted_seq_as_supevision = shifted_seq_as_supevision
+        self.problem = problem
+        # self.seperate_p_tensor = seperate_p_tensor
+        # self.shifted_seq_as_supevision = shifted_seq_as_supevision
 
         # The cached data
         if cache != None:
@@ -156,50 +159,29 @@ class QuickDraw(Dataset):
         if self.start_from_zero:
             sketch[:,:2] -= sketch[0,:2]
 
-        if self.seperate_p_tensor:
-            if self.shifted_seq_as_supevision:
-                return (sketch[:-1,:-1], sketch[:-1,-1]), (sketch[1:,:-1], sketch[1:,-1]), c_id
-            else:
-                return (sketch[:,:-1], sketch[:,-1]), c_id
-        else:
-            if self.shifted_seq_as_supevision:
-                return sketch[:-1,:], sketch[1:,:], c_id
-            else:
-                return sketch, c_id
+        if self.problem == QuickDraw.FULLSEQ:
+            return sketch, c_id
+        elif self.problem == QuickDraw.ENCDEC:
+            return sketch[:,:-1], (sketch[:-1,:-1], sketch[1:,:-1], sketch[1:,-1]), c_id
 
     def collate(self, batch):
-        if self.seperate_p_tensor:
-            if self.shifted_seq_as_supevision:
-                lengths = torch.tensor([x.shape[0] for (x, _), (_, _), _ in batch])
-                padded_seq_inp = pad_sequence([torch.tensor(x) for (x, _), (_, _), _ in batch])
-                padded_seq_inp_p = pad_sequence([torch.tensor(p) for (_, p), (_, _), _ in batch])
-                padded_seq_shifted = pad_sequence([torch.tensor(x) for (_, _), (x, _), _ in batch])
-                padded_seq_shifted_p = pad_sequence([torch.tensor(p) for (_, _), (_, p), _ in batch])
-                labels = torch.tensor([c for (_, _), (_, _), c in batch])
-                return (pack_padded_sequence(padded_seq_inp, lengths, enforce_sorted=False),\
-                        pack_padded_sequence(padded_seq_inp_p, lengths, enforce_sorted=False)),\
-                       (pack_padded_sequence(padded_seq_shifted, lengths, enforce_sorted=False), \
-                        pack_padded_sequence(padded_seq_shifted_p, lengths, enforce_sorted=False)), labels
-            else:
-                lengths = torch.tensor([x.shape[0] for (x, _), _ in batch])
-                padded_seq_inp = pad_sequence([torch.tensor(x) for (x, _), _ in batch])
-                padded_seq_inp_p = pad_sequence([torch.tensor(p) for (_, p), _ in batch])
-                labels = torch.tensor([c for (_, _), c in batch])
-                return (pack_padded_sequence(padded_seq_inp, lengths, enforce_sorted=False),\
-                        pack_padded_sequence(padded_seq_inp_p, lengths, enforce_sorted=False)), labels
-        else:
-            if self.shifted_seq_as_supevision:
-                lengths = torch.tensor([x.shape[0] for (x, _, _) in batch])
-                padded_seq_inp = pad_sequence([torch.tensor(x) for (x, _, _) in batch])
-                padded_seq_shifted = pad_sequence([torch.tensor(x) for (_, x, _) in batch])
-                labels = torch.tensor([c for (_, _, c) in batch])
-                return pack_padded_sequence(padded_seq_inp, lengths, enforce_sorted=False),\
-                        pack_padded_sequence(padded_seq_shifted, lengths, enforce_sorted=False), labels
-            else:
-                lengths = torch.tensor([x.shape[0] for (x, _) in batch])
-                padded_seq_inp = pad_sequence([torch.tensor(x) for (x, _) in batch])
-                labels = torch.tensor([c for (_, c) in batch])
-                return pack_padded_sequence(padded_seq_inp, lengths, enforce_sorted=False), labels
+        if self.problem == QuickDraw.FULLSEQ:
+            lengths = torch.tensor([x.shape[0] for x, _ in batch])
+            padded_seq_inp = pad_sequence([torch.tensor(x) for x, _ in batch])
+            labels = torch.tensor([c for _, c in batch])
+            return pack_padded_sequence(padded_seq_inp, lengths, enforce_sorted=False), labels
+        elif self.problem == QuickDraw.ENCDEC:
+            lengths_enc = torch.tensor([x.shape[0] for x, (_, _, _), _ in batch])
+            padded_seq_inp_enc = pad_sequence([torch.tensor(x) for x, (_, _, _), _ in batch])
+            lengths_dec = torch.tensor([x.shape[0] for _, (x, _, _), _ in batch])
+            padded_seq_inp_dec = pad_sequence([torch.tensor(x) for _, (x, _, _), _ in batch])
+            padded_seq_out_dec = pad_sequence([torch.tensor(y) for _, (_, y, _), _ in batch])
+            padded_seq_out_pen = pad_sequence([torch.tensor(p) for _, (_, _, p), _ in batch])
+            labels = torch.tensor([c for _, (_, _, _), c in batch])
+            return pack_padded_sequence(padded_seq_inp_enc, lengths_enc, enforce_sorted=False), \
+                    (pack_padded_sequence(padded_seq_inp_dec, lengths_dec, enforce_sorted=False),
+                     pack_padded_sequence(padded_seq_out_dec, lengths_dec, enforce_sorted=False),
+                     pack_padded_sequence(padded_seq_out_pen, lengths_dec, enforce_sorted=False)), labels
 
     def get_dataloader(self, batch_size, shuffle = True, pin_memory = True):
         return DataLoader(self, batch_size=batch_size, collate_fn=self.collate, shuffle=shuffle, pin_memory=pin_memory)
@@ -208,7 +190,7 @@ class QuickDraw(Dataset):
         train_samples = int(len(self) * proportion)
         qd_test = QuickDraw(self.root, categories=self.categories, max_sketches_each_cat=self.max_sketches_each_cat, normalize_xy=self.normalize_xy,
             dtype=self.dtype, verbose=self.verbose, filter_func=self.filter_func, mode=self.mode, start_from_zero=self.start_from_zero,
-            seperate_p_tensor=self.seperate_p_tensor, shifted_seq_as_supevision=self.shifted_seq_as_supevision,
+            problem=self.problem,
             cache=self.cache[train_samples:])
         self.cache = self.cache[:train_samples]
 
@@ -221,7 +203,7 @@ if __name__ == '__main__':
     import sys
 
     qd = QuickDraw(sys.argv[1], categories=['airplane', 'bus'], max_sketches_each_cat=10, verbose=True, mode=QuickDraw.STROKE,
-        seperate_p_tensor=False, shifted_seq_as_supevision=True)
-    qdl = qd.get_dataloader(4)
-    for X, Y, _ in qdl:
+        problem=QuickDraw.ENCDEC)
+    qdl = qd.get_dataloader(1)
+    for X, (X_, Y, P), C in qdl:
         breakpoint()
