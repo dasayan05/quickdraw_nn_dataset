@@ -40,6 +40,7 @@ class QuickDraw(Dataset):
 
     FULLSEQ = 0
     ENCDEC = 1
+    STROKESET = 2
 
     def __init__(self, root, *, categories=[], normalize_xy=True, start_from_zero=False, dtype=np.float32, verbose=False,
             max_sketches_each_cat=1000, # maximum sketches from each category
@@ -95,7 +96,7 @@ class QuickDraw(Dataset):
                         # (True, modified_sketch) OR (False, <anything>). If the first return
                         # object is True, it adds the 'modified_sketch' into cache. If False,
                         # it just skips that sample (the 2nd argument is useless then).
-                        if self.mode == QuickDraw.SKETCH:
+                        if self.mode == QuickDraw.SKETCH or self.mode == QuickDraw.STROKESET:
                             filter_check, _drawing = self.filter_func(drawing)
                             if filter_check:
                                 drawing = _drawing
@@ -142,7 +143,10 @@ class QuickDraw(Dataset):
     def __getitem__(self, i_sketch):
         qd_sketch, c_id = self.cache[i_sketch]
         n_strokes = len(qd_sketch) # sketch contains 'n_strokes' strokes
-        sketch = np.empty((0, 3), dtype=self.dtype) # 2 for X-Y pair, 1 for pen state P
+        if self.mode != QuickDraw.STROKESET:
+            sketch = np.empty((0, 3), dtype=self.dtype) # 2 for X-Y pair, 1 for pen state P
+        else:
+            sketch = []
 
         for i_stroke in range(n_strokes):
             stroke = np.array(qd_sketch[i_stroke], dtype=self.dtype).T
@@ -150,14 +154,37 @@ class QuickDraw(Dataset):
             # The pen states. Only the one at the end of stroke has 1, rest 0
             p = np.zeros((stroke.shape[0], 1), dtype=self.dtype); p[-1, 0] = 1.
             
-            # stack up strokes to make sketch
-            sketch = np.vstack((sketch, np.hstack((stroke, p))))
+            if self.mode != QuickDraw.STROKESET:
+                # stack up strokes to make sketch
+                sketch = np.vstack((sketch, np.hstack((stroke, p))))
+            else:
+                sketch.append(np.hstack((stroke, p)))
 
         if self.normalize_xy:
-            norm_factor = np.sqrt((sketch[:,:2]**2).sum(1)).max()
-            sketch[:,:2] = sketch[:,:2] / (norm_factor + np.finfo(self.dtype).eps)
+            if self.mode != QuickDraw.STROKESET:
+                norm_factor = np.sqrt((sketch[:,:2]**2).sum(1)).max()
+                sketch[:,:2] = sketch[:,:2] / (norm_factor + np.finfo(self.dtype).eps)
+            else:
+                norm_factor = 0
+                for stroke in sketch:
+                    stroke_max_mag = np.sqrt((stroke[:,:2]**2).sum(1)).max()
+                    # breakpoint()
+                    if stroke_max_mag > norm_factor:
+                        norm_factor = stroke_max_mag
+                for j in range(len(sketch)):
+                    sketch[j][:,:2] = sketch[j][:,:2] / (norm_factor + np.finfo(self.dtype).eps)
+
         if self.start_from_zero:
-            sketch[:,:2] -= sketch[0,:2]
+            if self.mode != QuickDraw.STROKESET:
+                sketch[:,:2] -= sketch[0,:2]
+            else:
+                first_xy = sketch[0][0,:2]
+                for j in range(len(sketch)):
+                    sketch[j][:,:2] = sketch[j][:,:2] - first_xy
+
+        if self.mode == QuickDraw.STROKESET:
+            # For now, ignore 'problem' if 'mode' is QuickDraw.STROKESET
+            return sketch, c_id # A premature return
 
         if self.problem == QuickDraw.FULLSEQ:
             return sketch, c_id
@@ -165,6 +192,9 @@ class QuickDraw(Dataset):
             return sketch[:,:-1], (sketch[:-1,:-1], sketch[1:,:-1], sketch[1:,-1]), c_id
 
     def collate(self, batch):
+        if self.mode == QuickDraw.STROKESET:
+            return batch # premature return
+        
         if self.problem == QuickDraw.FULLSEQ:
             lengths = torch.tensor([x.shape[0] for x, _ in batch])
             padded_seq_inp = pad_sequence([torch.tensor(x) for x, _ in batch])
@@ -201,9 +231,14 @@ class QuickDraw(Dataset):
 
 if __name__ == '__main__':
     import sys
+    import matplotlib.pyplot as plt
 
-    qd = QuickDraw(sys.argv[1], categories=['airplane', 'bus'], max_sketches_each_cat=10, verbose=True, mode=QuickDraw.STROKE,
-        problem=QuickDraw.ENCDEC)
-    qdl = qd.get_dataloader(1)
-    for X, (X_, Y, P), C in qdl:
-        breakpoint()
+    qd = QuickDraw(sys.argv[1], categories=['airplane', 'bus'], max_sketches_each_cat=10, verbose=True, mode=QuickDraw.STROKESET)
+    qdl = qd.get_dataloader(4)
+    for S in qdl:
+        for sketch, c in S:
+            fig = plt.figure()
+            for stroke in sketch:
+                plt.plot(stroke[:,0], stroke[:,1])
+            plt.show()
+            plt.close()
