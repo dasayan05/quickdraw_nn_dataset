@@ -214,7 +214,7 @@ class QuickDraw(Dataset):
                      pack_padded_sequence(padded_seq_out_pen, lengths_dec, enforce_sorted=False)), labels
 
     def get_dataloader(self, batch_size, shuffle = True, pin_memory = True):
-        return DataLoader(self, batch_size=batch_size, collate_fn=self.collate, shuffle=shuffle, pin_memory=pin_memory)
+        return DataLoader(self, batch_size=batch_size, collate_fn=self.collate, shuffle=shuffle, pin_memory=pin_memory, drop_last=True)
 
     def split(self, proportion=0.8):
         train_samples = int(len(self) * proportion)
