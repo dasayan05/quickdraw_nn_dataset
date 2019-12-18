@@ -43,6 +43,7 @@ class QuickDraw(Dataset):
     STROKESET = 2
 
     def __init__(self, root, *, categories=[], normalize_xy=True, start_from_zero=False, dtype=np.float32, verbose=False,
+            npz=False,
             max_sketches_each_cat=1000, # maximum sketches from each category
             cache=None, # not to be used
             filter_func=None, # subset sketches based on a function
@@ -58,12 +59,16 @@ class QuickDraw(Dataset):
         if len(categories) == 0:
             self.categories = os.listdir(self.root)
         else:
-            self.categories = [cat + '.bin' for cat in categories]
+            if npz:
+                self.categories = [cat + '.npz' for cat in categories]
+            else:
+                self.categories = [cat + '.bin' for cat in categories]
         
         self.normalize_xy = normalize_xy
         self.start_from_zero = start_from_zero
         self.dtype = dtype
         self.verbose = verbose
+        self.npz = npz
         self.max_sketches_each_cat = max_sketches_each_cat
         self.max_sketches = self.max_sketches_each_cat * len(self.categories)
         if filter_func == None:
@@ -85,11 +90,24 @@ class QuickDraw(Dataset):
                 bin_file_path = os.path.join(self.root, category)
                 n_sketches_each_cat = 0
                 with open(bin_file_path, 'rb') as file:
+                    if self.npz:
+                        file = np.load(bin_file_path, allow_pickle=True, encoding='bytes')['train']
+
                     while True:
                         try:
-                            drawing = unpack_drawing(file)['image']
-                            # breakpoint()
-                        except struct.error:
+                            if not self.npz:
+                                drawing = unpack_drawing(file)['image']
+                            else:
+                                drawing = []
+                                
+                                # acquire the next sketch
+                                sketch = file[0]
+                                file = file[1:] # replace the original structure by the rest of it
+                                sketch[:,:2] = np.cumsum(sketch[:,:2], axis=0)
+                                stroke_list = np.split(sketch[:,:2], np.where(sketch[:,2])[0] + 1, axis=0)[:-1]
+                                for stroke in stroke_list:
+                                    drawing.append(stroke.T.tolist())
+                        except (struct.error, IndexError) as e:
                             break
 
                         # Passes all sketches/strokes through 'filter_func'. It returns either
@@ -104,6 +122,7 @@ class QuickDraw(Dataset):
                                 continue
                             
                             # Append the whole sketch (with category ID)
+                            # breakpoint()
                             self.cache.append((drawing, cat_idx))
 
                         elif self.mode == QuickDraw.STROKE:
@@ -116,6 +135,7 @@ class QuickDraw(Dataset):
                                     continue
 
                             # Append the stroke sketchs (with category ID each)
+                            # breakpoint()
                             self.cache.extend(stroke_drawings)
                         
                         n_sketches += 1
@@ -233,7 +253,7 @@ if __name__ == '__main__':
     import sys
     import matplotlib.pyplot as plt
 
-    qd = QuickDraw(sys.argv[1], categories=['airplane', 'bus'], max_sketches_each_cat=10, verbose=True, mode=QuickDraw.STROKESET)
+    qd = QuickDraw(sys.argv[1], npz=True, categories=['cat'], max_sketches_each_cat=10, verbose=True, mode=QuickDraw.STROKESET)
     qdl = qd.get_dataloader(4)
     for S in qdl:
         for sketch, c in S:
