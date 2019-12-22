@@ -104,6 +104,16 @@ class QuickDraw(Dataset):
                                 sketch = file[0]
                                 file = file[1:] # replace the original structure by the rest of it
                                 sketch[:,:2] = np.cumsum(sketch[:,:2], axis=0)
+
+                                # range normalization
+                                xmin, xmax = sketch[:,0].min(), sketch[:,0].max()
+                                ymin, ymax = sketch[:,1].min(), sketch[:,1].max()
+
+                                sketch[:,0] = ((sketch[:,0] - xmin) / float(xmax - xmin)) * 255.
+                                sketch[:,1] = ((sketch[:,1] - ymin) / float(ymax - ymin)) * 255.
+
+                                sketch = sketch.astype(np.int64)
+
                                 stroke_list = np.split(sketch[:,:2], np.where(sketch[:,2])[0] + 1, axis=0)[:-1]
                                 for stroke in stroke_list:
                                     drawing.append(stroke.T.tolist())
