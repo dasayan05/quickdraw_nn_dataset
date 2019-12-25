@@ -81,8 +81,6 @@ class QuickDraw(Dataset):
             self.filter_func = filter_func
         self.mode = mode
         self.problem = problem
-        # self.seperate_p_tensor = seperate_p_tensor
-        # self.shifted_seq_as_supevision = shifted_seq_as_supevision
 
         # The cached data
         if cache != None:
@@ -160,21 +158,20 @@ class QuickDraw(Dataset):
                                 continue
                             
                             # Append the whole sketch (with category ID)
-                            # breakpoint()
                             self.cache.append((drawing, cat_idx))
 
                         elif self.mode == QuickDraw.STROKE:
                             stroke_drawings = [([d,], cat_idx) for d in drawing]
+                            stroke_drawings_ = []
                             for j, (sd, _) in enumerate(stroke_drawings):
-                                filter_check, _sd = self.filter_func(sd)
+                                filter_check, _sd = self.filter_func(sd[0])
                                 if filter_check:
-                                    stroke_drawings[j] = (_sd, cat_idx)
+                                    stroke_drawings_.append(([_sd], cat_idx))
                                 else:
                                     continue
 
                             # Append the stroke sketchs (with category ID each)
-                            # breakpoint()
-                            self.cache.extend(stroke_drawings)
+                            self.cache.extend(stroke_drawings_)
                         
                         n_sketches += 1
                         n_sketches_each_cat += 1
@@ -261,10 +258,6 @@ class QuickDraw(Dataset):
         elif self.problem == QuickDraw.ENCDEC:
             lengths_enc = torch.tensor([x.shape[0] for x, _ in batch])
             padded_seq_inp_enc = pad_sequence([torch.tensor(x) for x, _ in batch])
-            # lengths_dec = torch.tensor([x.shape[0] for _, (x, _, _), _ in batch])
-            # padded_seq_inp_dec = pad_sequence([torch.tensor(x) for _, (x, _, _), _ in batch])
-            # padded_seq_out_dec = pad_sequence([torch.tensor(y) for _, (_, y, _), _ in batch])
-            # padded_seq_out_pen = pad_sequence([torch.tensor(p) for _, (_, _, p), _ in batch])
             labels = torch.tensor([c for _, c in batch])
             return pack_padded_sequence(padded_seq_inp_enc, lengths_enc, enforce_sorted=False), labels
 
