@@ -247,7 +247,7 @@ class QuickDraw(Dataset):
         if self.problem == QuickDraw.FULLSEQ:
             return sketch, c_id
         elif self.problem == QuickDraw.ENCDEC:
-            return sketch[:,:-1], (sketch[:-1,:-1], sketch[1:,:-1], sketch[1:,-1]), c_id
+            return sketch[:,:-1], c_id
 
     def collate(self, batch):
         if self.mode == QuickDraw.STROKESET:
@@ -259,17 +259,14 @@ class QuickDraw(Dataset):
             labels = torch.tensor([c for _, c in batch])
             return pack_padded_sequence(padded_seq_inp, lengths, enforce_sorted=False), labels
         elif self.problem == QuickDraw.ENCDEC:
-            lengths_enc = torch.tensor([x.shape[0] for x, (_, _, _), _ in batch])
-            padded_seq_inp_enc = pad_sequence([torch.tensor(x) for x, (_, _, _), _ in batch])
-            lengths_dec = torch.tensor([x.shape[0] for _, (x, _, _), _ in batch])
-            padded_seq_inp_dec = pad_sequence([torch.tensor(x) for _, (x, _, _), _ in batch])
-            padded_seq_out_dec = pad_sequence([torch.tensor(y) for _, (_, y, _), _ in batch])
-            padded_seq_out_pen = pad_sequence([torch.tensor(p) for _, (_, _, p), _ in batch])
-            labels = torch.tensor([c for _, (_, _, _), c in batch])
-            return pack_padded_sequence(padded_seq_inp_enc, lengths_enc, enforce_sorted=False), \
-                    (pack_padded_sequence(padded_seq_inp_dec, lengths_dec, enforce_sorted=False),
-                     pack_padded_sequence(padded_seq_out_dec, lengths_dec, enforce_sorted=False),
-                     pack_padded_sequence(padded_seq_out_pen, lengths_dec, enforce_sorted=False)), labels
+            lengths_enc = torch.tensor([x.shape[0] for x, _ in batch])
+            padded_seq_inp_enc = pad_sequence([torch.tensor(x) for x, _ in batch])
+            # lengths_dec = torch.tensor([x.shape[0] for _, (x, _, _), _ in batch])
+            # padded_seq_inp_dec = pad_sequence([torch.tensor(x) for _, (x, _, _), _ in batch])
+            # padded_seq_out_dec = pad_sequence([torch.tensor(y) for _, (_, y, _), _ in batch])
+            # padded_seq_out_pen = pad_sequence([torch.tensor(p) for _, (_, _, p), _ in batch])
+            labels = torch.tensor([c for _, c in batch])
+            return pack_padded_sequence(padded_seq_inp_enc, lengths_enc, enforce_sorted=False), labels
 
     def get_dataloader(self, batch_size, shuffle = True, pin_memory = True):
         return DataLoader(self, batch_size=batch_size, collate_fn=self.collate, shuffle=shuffle, pin_memory=pin_memory, drop_last=True)
