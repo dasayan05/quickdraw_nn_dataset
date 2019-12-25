@@ -1,3 +1,4 @@
+import ndjson
 import os, random, pdb
 import torch, numpy as np
 from torch.utils.data import Dataset, DataLoader
@@ -43,7 +44,7 @@ class QuickDraw(Dataset):
     STROKESET = 2
 
     def __init__(self, root, *, categories=[], normalize_xy=True, start_from_zero=False, dtype=np.float32, verbose=False,
-            npz=False,
+            npz=False, raw=False,
             max_sketches_each_cat=1000, # maximum sketches from each category
             cache=None, # not to be used
             filter_func=None, # subset sketches based on a function
@@ -61,6 +62,8 @@ class QuickDraw(Dataset):
         else:
             if npz:
                 self.categories = [cat + '.npz' for cat in categories]
+            elif raw:
+                self.categories = [cat + '.ndjson' for cat in categories]
             else:
                 self.categories = [cat + '.bin' for cat in categories]
         
@@ -69,6 +72,7 @@ class QuickDraw(Dataset):
         self.dtype = dtype
         self.verbose = verbose
         self.npz = npz
+        self.ndjson = raw
         self.max_sketches_each_cat = max_sketches_each_cat
         self.max_sketches = self.max_sketches_each_cat * len(self.categories)
         if filter_func == None:
@@ -92,12 +96,13 @@ class QuickDraw(Dataset):
                 with open(bin_file_path, 'rb') as file:
                     if self.npz:
                         file = np.load(bin_file_path, allow_pickle=True, encoding='bytes')['train']
+                    if self.ndjson:
+                        with open(bin_file_path, 'r') as f:
+                            J = ndjson.load(f)
 
                     while True:
                         try:
-                            if not self.npz:
-                                drawing = unpack_drawing(file)['image']
-                            else:
+                            if self.npz:
                                 drawing = []
                                 
                                 # acquire the next sketch
@@ -117,6 +122,29 @@ class QuickDraw(Dataset):
                                 stroke_list = np.split(sketch[:,:2], np.where(sketch[:,2])[0] + 1, axis=0)[:-1]
                                 for stroke in stroke_list:
                                     drawing.append(stroke.T.tolist())
+                            elif self.ndjson:
+                                drawing = []
+
+                                sketch = J[0]['drawing']
+                                J = J[1:] # replace the original structure by the rest of it
+                                sketch = [np.array(s[:-1]).T for s in sketch]
+
+                                xmin = min([stroke[:,0].min() for stroke in sketch])
+                                xmax = max([stroke[:,0].max() for stroke in sketch])
+                                ymin = min([stroke[:,1].min() for stroke in sketch])
+                                ymax = max([stroke[:,1].max() for stroke in sketch])
+
+                                for i_stroke in range(len(sketch)):
+                                    # breakpoint()
+                                    sketch[i_stroke][:,0] = ((sketch[i_stroke][:,0] - xmin) / float(xmax - xmin)) * 255.
+                                    sketch[i_stroke][:,1] = 255. - (((sketch[i_stroke][:,1] - ymin) / float(ymax - ymin)) * 255.)
+                                    sketch[i_stroke] = sketch[i_stroke].astype(np.int64)
+
+                                for stroke in sketch:
+                                    drawing.append(stroke.T.tolist())
+                            else:
+                                drawing = unpack_drawing(file)['image']
+                        
                         except (struct.error, IndexError) as e:
                             break
 
@@ -263,7 +291,7 @@ if __name__ == '__main__':
     import sys
     import matplotlib.pyplot as plt
 
-    qd = QuickDraw(sys.argv[1], npz=True, categories=['cat'], max_sketches_each_cat=10, verbose=True, mode=QuickDraw.STROKESET)
+    qd = QuickDraw(sys.argv[1], raw=True, categories=['cat'], max_sketches_each_cat=10, verbose=True, mode=QuickDraw.STROKESET)
     qdl = qd.get_dataloader(4)
     for S in qdl:
         for sketch, c in S:
