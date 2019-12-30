@@ -106,6 +106,7 @@ class QuickDraw(Dataset):
                                 # acquire the next sketch
                                 sketch = file[0]
                                 file = file[1:] # replace the original structure by the rest of it
+                                sketch = np.vstack((np.array([0, 0, 0]), sketch)) # start from zero
                                 sketch[:,:2] = np.cumsum(sketch[:,:2], axis=0)
 
                                 # range normalization
