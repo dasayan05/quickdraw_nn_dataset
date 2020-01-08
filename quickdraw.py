@@ -61,7 +61,7 @@ class QuickDraw(Dataset):
             self.categories = os.listdir(self.root)
         else:
             if npz:
-                self.categories = [cat + '.full.npz' for cat in categories]
+                self.categories = [cat + '.npz' for cat in categories]
             elif raw:
                 self.categories = [cat + '.ndjson' for cat in categories]
             else:
